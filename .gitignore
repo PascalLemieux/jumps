@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+.pytest_cache/
+.venv/
+
+# Data & outputs (keep the repo light; regenerate from code)
+data/
+*.parquet
+*.csv
+*.h5
+
+# Secrets
+.env
+*.env
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
