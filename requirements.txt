@@ -1,5 +1,6 @@
 numpy
 pandas
-matplotlib
 scipy
+matplotlib
+pyarrow
 jupyter
