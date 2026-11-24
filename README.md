@@ -10,6 +10,7 @@
 </p>
 
 <p align="center">
+  <a href="https://www.linkedin.com/in/pascal-lemieux/">Follow the series on LinkedIn</a> ·
   <a href="#the-series">Posts</a> ·
   <a href="#run-it-yourself">Run it</a> ·
   <a href="#how-the-code-is-organised">Code</a>
