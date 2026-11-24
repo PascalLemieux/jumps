@@ -63,58 +63,114 @@ def render_equation(latex: str, name: str, caption: str | None = None, fontsize:
     return path
 
 
-def signature_plot(series: list[dict], labels: list[str], truth: list[dict] | None = None,
-                   title: str = "", subtitle: str = "", ylabel: str = "") -> plt.Figure:
-    """Line chart of a statistic against sampling interval.
+def event_panel(events, window_minutes: int, context_minutes: int,
+                title: str, subtitle: str) -> plt.Figure:
+    """Small multiples of the largest ``window_minutes`` moves, one panel per event.
 
-    ``series`` items: ``{"name", "x", "y", "color", "marker"}`` where ``x`` holds
-    positions into ``labels``. ``truth`` items: ``{"y", "color", "text"}`` draw
-    dashed reference levels.
+    ``events`` is the frame returned by :func:`jumps.estimators.largest_moves`.
+    Each panel draws the 1-minute path (blue) and, over the shaded window, the
+    straight segment a ``window_minutes`` bar would show (orange).
+    """
+    n = len(events)
+    ncols = 2
+    nrows = int(np.ceil(n / ncols))
+    fig, axes = plt.subplots(nrows, ncols, figsize=(6, 6))
+    fig.subplots_adjust(left=0.10, right=0.97, top=0.76, bottom=0.08, hspace=0.75, wspace=0.30)
+    minutes = np.arange(-context_minutes, window_minutes + context_minutes + 1)
+    for ax, (start, ev) in zip(axes.ravel(), events.iterrows()):
+        path = ev["path_pct"]
+        ax.axvspan(0, window_minutes, color=GRID, alpha=0.6, lw=0, zorder=0)
+        ax.plot(minutes[: len(path)], path, color=BLUE, lw=1.4, zorder=3)
+        ax.plot([0, window_minutes], [path[context_minutes], path[context_minutes + window_minutes]],
+                color=ORANGE, lw=1.4, ls=(0, (3, 2)), marker="o", markersize=5,
+                markeredgecolor=SURFACE, markeredgewidth=1.0, zorder=4)
+        move = 100 * ev["window_return"]
+        ax.set_title(f"{start:%d %b %Y}, {start:%H:%M} UTC\n"
+                     f"{move:+.1f}% in {window_minutes} min, biggest minute {100 * ev['largest_minute_share']:.0f}%",
+                     loc="left", fontsize=8, color=INK, linespacing=1.35)
+        ax.set_xticks([-context_minutes, 0, window_minutes, window_minutes + context_minutes])
+        ax.tick_params(labelsize=7.5, length=2)
+        ax.yaxis.set_major_formatter(mpl.ticker.PercentFormatter(decimals=0))
+        ax.yaxis.set_major_locator(mpl.ticker.MaxNLocator(4))
+        ax.grid(axis="y", lw=0.6)
+    for ax in axes.ravel()[n:]:
+        ax.axis("off")
+    for ax in axes[-1]:
+        ax.set_xlabel("Minutes from window start", fontsize=8, color=INK_2)
+    titled(fig, title, subtitle)
+    handles = [mpl.lines.Line2D([], [], color=BLUE, lw=1.4, label="1-minute path"),
+               mpl.lines.Line2D([], [], color=ORANGE, lw=1.4, ls=(0, (3, 2)), marker="o", markersize=5,
+                                markeredgecolor=SURFACE, label=f"the same move as one {window_minutes}-minute bar")]
+    fig.legend(handles=handles, loc="upper left", bbox_to_anchor=(0.075, 0.865), ncol=2,
+               fontsize=8.5, frameon=False, handlelength=2.0, columnspacing=1.5)
+    return fig
+
+
+def sampling_curves(curves: dict, labels: list[str], title: str, subtitle: str,
+                    top_label: str = "Share of variance attributed to jumps",
+                    bottom_label: str = "Days flagged by the BNS test at 1%") -> plt.Figure:
+    """Two stacked panels: jump share and days flagged, against sampling interval.
+
+    ``curves`` maps a series name to ``{"x", "jump_share", "days_flagged", "color", "marker"}``
+    with values in percent and ``x`` positions into ``labels``.
+    """
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(6, 6), sharex=True)
+    fig.subplots_adjust(left=0.12, right=0.84, top=0.77, bottom=0.09, hspace=0.32)
+    for ax, key, ylab in ((ax1, "jump_share", top_label), (ax2, "days_flagged", bottom_label)):
+        for name, c in curves.items():
+            ax.plot(c["x"], c[key], color=c["color"], marker=c.get("marker", "o"),
+                    markeredgecolor=SURFACE, markeredgewidth=1.5, label=name, zorder=3)
+        ax.set_title(ylab, loc="left", fontsize=10.5, color=INK)
+        ax.yaxis.set_major_formatter(mpl.ticker.PercentFormatter(decimals=0))
+        ax.set_ylim(bottom=0)
+        _end_labels(ax, {name: (list(c["x"])[-1], list(c[key])[-1]) for name, c in curves.items()})
+    ax2.axhline(1, color=MUTED, lw=1.0, ls=(0, (4, 3)), zorder=1)
+    ax2.text(len(labels) - 0.65, 1, "nominal 1%", fontsize=8.5, color=INK_2, va="bottom", ha="right")
+    ax2.set_xticks(range(len(labels)), labels)
+    ax2.set_xlim(-0.4, len(labels) - 0.6)
+    ax2.set_xlabel("Sampling interval")
+    ax1.legend(loc="upper left", bbox_to_anchor=(0.0, 1.36), ncol=len(curves), fontsize=9,
+               handlelength=1.6, columnspacing=1.2, borderaxespad=0)
+    titled(fig, title, subtitle)
+    return fig
+
+
+def worlds_plot(series: list[dict], labels: list[str], title: str, subtitle: str) -> plt.Figure:
+    """Jump share against sampling interval for simulated worlds, with an empirical overlay.
+
+    ``series`` items: ``{"name", "x", "y", "color", "marker", "ls", "dy"}``; ``y`` in percent.
     """
     fig, ax = plt.subplots(figsize=(6, 6))
-    fig.subplots_adjust(left=0.11, right=0.80, top=0.80, bottom=0.11)
-    for ref in truth or []:
-        ax.axhline(ref["y"], color=ref["color"], lw=1.0, ls=(0, (4, 3)), alpha=0.7, zorder=1)
-        ax.text(-0.3, ref["y"], ref["text"], fontsize=9, color=INK_2, va="bottom", ha="left")
+    fig.subplots_adjust(left=0.12, right=0.78, top=0.76, bottom=0.10)
     for s in series:
-        ax.plot(s["x"], s["y"], color=s["color"], marker=s.get("marker", "o"),
+        ax.plot(s["x"], s["y"], color=s["color"], marker=s.get("marker", "o"), ls=s.get("ls", "-"),
                 markeredgecolor=SURFACE, markeredgewidth=1.5, label=s["name"], zorder=3)
-        ax.annotate(s["name"], (s["x"][-1], s["y"][-1]), xytext=(10, s.get("dy", 0)),
-                    textcoords="offset points", fontsize=10, color=INK, va="center")
+        i = s.get("label_at", -1)
+        ax.annotate(s["name"], (list(s["x"])[i], list(s["y"])[i]), xytext=(9, s.get("dy", 0)),
+                    textcoords="offset points", fontsize=9.5, color=INK, va="center")
     ax.set_xticks(range(len(labels)), labels)
     ax.set_xlim(-0.4, len(labels) - 0.6)
+    ax.set_ylim(-3, 103)
     ax.set_xlabel("Sampling interval")
-    ax.set_ylabel(ylabel)
+    ax.set_ylabel("Estimated jump share of variance")
     ax.yaxis.set_major_formatter(mpl.ticker.PercentFormatter(decimals=0))
-    ax.legend(loc="upper left", bbox_to_anchor=(0.0, 1.10), ncol=len(series),
-              fontsize=9, handlelength=1.6, columnspacing=1.2, borderaxespad=0)
+    ax.legend(loc="upper left", bbox_to_anchor=(0.0, 1.14), ncol=2, fontsize=9,
+              handlelength=1.8, columnspacing=1.2, borderaxespad=0)
     titled(fig, title, subtitle)
     return fig
 
 
-def two_clocks_plot(logp_fine: np.ndarray, dt_seconds: int, coarse_seconds: int,
-                    event_index: int, title: str, subtitle: str) -> plt.Figure:
-    """One intraday window on a coarse grid, then a zoom into one coarse interval.
-
-    ``event_index`` is the coarse interval (0-based, within the window) to zoom into.
-    """
-    k = coarse_seconds // dt_seconds
-    minutes = np.arange(len(logp_fine)) * dt_seconds / 60.0
-    ret = 100.0 * (logp_fine - logp_fine[0])
-    lo, hi = event_index * k, (event_index + 1) * k
-    fig, axes = plt.subplots(2, 1, figsize=(6, 6))
-    fig.subplots_adjust(left=0.12, right=0.95, top=0.80, bottom=0.10, hspace=0.42)
-
-    axes[0].axvspan(minutes[lo], minutes[hi], color=GRID, alpha=0.7, lw=0, zorder=0)
-    axes[0].plot(minutes[::k], ret[::k], color=ORANGE, marker="o",
-                 markeredgecolor=SURFACE, markeredgewidth=1.5)
-    axes[0].set_title(f"Sampled every {coarse_seconds // 60} minutes: it looks like a jump",
-                      loc="left", fontsize=11, color=INK)
-    axes[1].plot(minutes[lo : hi + 1], ret[lo : hi + 1], color=BLUE, lw=1.6)
-    axes[1].set_title(f"Inside the shaded interval, every {dt_seconds} seconds: a continuous slide",
-                      loc="left", fontsize=11, color=INK)
-    axes[1].set_xlabel("Minutes")
-    for ax in axes:
-        ax.set_ylabel("Return (%)")
-    titled(fig, title, subtitle)
-    return fig
+def _end_labels(ax, points: dict, min_gap_pt: float = 11.0) -> None:
+    """Direct labels at the last point of each series, pushed apart if they collide."""
+    names = sorted(points, key=lambda k: points[k][1])
+    y_pix = [ax.transData.transform((points[k][0], points[k][1]))[1] for k in names]
+    offsets = [0.0] * len(names)
+    dpi_scale = ax.figure.dpi / 72.0
+    for j in range(1, len(names)):
+        gap = (y_pix[j] + offsets[j]) - (y_pix[j - 1] + offsets[j - 1])
+        if gap < min_gap_pt * dpi_scale:
+            offsets[j] += min_gap_pt * dpi_scale - gap
+    for name, off in zip(names, offsets):
+        x, y = points[name]
+        ax.annotate(name, (x, y), xytext=(9, off / dpi_scale), textcoords="offset points",
+                    fontsize=9.5, color=INK, va="center")

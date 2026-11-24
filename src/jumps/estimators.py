@@ -11,6 +11,7 @@ Barndorff-Nielsen & Shephard (2004, 2006); Huang & Tauchen (2005).
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 from scipy.special import gamma
 from scipy.stats import norm
 
@@ -73,3 +74,49 @@ def jump_summary(logp: np.ndarray, steps: list[int], alpha: float = 0.01) -> dic
         share.append(1.0 - res["bv"].sum() / res["rv"].sum())
         flagged.append(np.mean(res["pvalue"] < alpha))
     return {"jump_share": np.array(share), "days_flagged": np.array(flagged)}
+
+
+def largest_moves(
+    logp: pd.Series,
+    window_minutes: int = 15,
+    top: int = 6,
+    context_minutes: int = 15,
+) -> pd.DataFrame:
+    """Find the largest absolute ``window_minutes`` log returns in a 1-minute series.
+
+    The window rolls over every start minute, not only clock-aligned bars, and at
+    most one event is kept per UTC day, the largest on that day. Windows with a
+    missing minute are skipped.
+
+    Returns one row per event with the window start and end, the window return,
+    the largest single 1-minute return inside it, its share of the window return,
+    and the 1-minute path from ``context_minutes`` before the window to
+    ``context_minutes`` after it as a cumulative return in percent.
+    """
+
+    logp = logp.sort_index()
+    full = pd.date_range(logp.index[0].ceil("min"), logp.index[-1].floor("min"), freq="1min")
+    lp = logp.reindex(full)
+    r1 = lp.diff()
+    # Window return over the last `window_minutes` minutes ending at t; NaN if any minute is missing.
+    rw = lp - lp.shift(window_minutes)
+    rw[r1.rolling(window_minutes).count() < window_minutes] = np.nan
+    cand = rw.abs().dropna()
+    daily_best = cand.groupby(cand.index.floor("D")).idxmax()
+    ends = cand.loc[daily_best].sort_values(ascending=False).index[:top]
+
+    rows = []
+    for end in ends:
+        start = end - pd.Timedelta(minutes=window_minutes)
+        inside = r1.loc[start + pd.Timedelta(minutes=1) : end]
+        biggest = inside.loc[inside.abs().idxmax()]
+        ctx = lp.loc[start - pd.Timedelta(minutes=context_minutes) : end + pd.Timedelta(minutes=context_minutes)]
+        rows.append({
+            "start": start, "end": end,
+            "window_return": rw.loc[end],
+            "largest_minute": biggest,
+            "largest_minute_share": abs(biggest) / abs(rw.loc[end]),
+            "minutes_to_half": int((inside.cumsum().abs() >= 0.5 * abs(rw.loc[end])).to_numpy().argmax()) + 1,
+            "path_pct": 100.0 * (ctx - lp.loc[start]).to_numpy(),
+        })
+    return pd.DataFrame(rows).set_index("start")

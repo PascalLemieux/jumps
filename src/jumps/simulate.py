@@ -7,6 +7,10 @@ level and an intraday periodic pattern):
   for a few minutes and then decays. There are no jumps at all.
 * ``kind="jumps"``: no volatility spikes, but genuine price discontinuities
   arrive at random times.
+* ``kind="vg"``: a variance gamma process, i.e. Brownian motion run on a gamma
+  clock. It is purely discontinuous with infinite activity and has no diffusion
+  component at all. It shares the daily volatility level and intraday pattern
+  of the other two worlds, applied as a deterministic time change.
 
 Both return a (days x prices) table of log prices on a regular grid, in the
 layout produced by :func:`jumps.data.to_daily_grid`.
@@ -28,6 +32,7 @@ def simulate_log_prices(
     burst_size: tuple[float, float] = (10.0, 25.0),
     burst_half_life: float = 60.0,
     jump_variance_share: float = 0.10,
+    vg_nu: float = 0.02,
     seed: int = 0,
 ) -> np.ndarray:
     """Simulate log prices; see the module docstring for the two ``kind`` values.
@@ -38,9 +43,13 @@ def simulate_log_prices(
         Half-life of a burst in seconds.
     jump_variance_share
         Target share of total variance due to jumps when ``kind="jumps"``.
+    vg_nu
+        Variance of the gamma clock per unit of business time, in days, when
+        ``kind="vg"``. Smaller values make the path closer to Brownian motion.
+        With 0.02 the gamma increment over one hour has shape 1/(24*0.02) = 2.1.
     """
-    if kind not in {"bursts", "jumps"}:
-        raise ValueError("kind must be 'bursts' or 'jumps'")
+    if kind not in {"bursts", "jumps", "vg"}:
+        raise ValueError("kind must be 'bursts', 'jumps' or 'vg'")
     rng = np.random.default_rng(seed)
     n = SECONDS_PER_DAY // dt_seconds
     total = n_days * n
@@ -69,7 +78,14 @@ def simulate_log_prices(
             mult[s:end] += peak * decay[: end - s]
         sigma = sigma * mult
 
-    r = sigma * rng.standard_normal(total)
+    if kind == "vg":
+        # Symmetric variance gamma: subordinate a Brownian motion to a gamma
+        # clock whose mean matches the diffusive variance budget of each step.
+        dt_days = dt_seconds / SECONDS_PER_DAY
+        g = rng.gamma(shape=dt_days / vg_nu, scale=vg_nu / dt_days, size=total)  # mean 1
+        r = sigma * np.sqrt(g) * rng.standard_normal(total)
+    else:
+        r = sigma * rng.standard_normal(total)
 
     if kind == "jumps":
         # Size jumps so they carry the target share of total variance.
