@@ -18,17 +18,11 @@
 
 ---
 
-> **Pascal Lemieux** · Quant with 15+ years across J.P. Morgan, RBC, Société Générale and
-> First Abu Dhabi Bank, from structured products and derivatives pricing to R&D on rates and
-> risk. Co-founded Affresco, applying deep reinforcement learning to crypto trading.
-> M.Sc. Financial Mathematics, Bayes Business School. Builds his own research stack in
-> Python, end to end. [LinkedIn](https://linkedin.com/in/pascal-lemieux)
+> Pascal Lemieux is a quant with 15+ years across J.P. Morgan, RBC, Société Générale and First Abu Dhabi Bank, spanning structured products, derivatives pricing and volatility modelling. He now focuses on digital-asset derivatives: crypto options, volatility surfaces and hedging, including deep reinforcement learning for hedging and execution, work he began as co-founder of Affresco. M.Sc. Financial Mathematics, Bayes Business School. [LinkedIn](https://linkedin.com/in/pascal-lemieux)
 
-Every post asks the same question of a different effect: **is it real, or is it the
-measurement?** Empirical evidence leads, on **BTC and ETH data** that anyone can download
-without an account, with simulation kept to a small sanity check. The notebooks produce
-every number and figure quoted in the posts, so you can check them, change the assumptions,
-or run them on your own data.
+This series tests what the jump literature claims against crypto market data, from 1-minute bars to tick trades. Every result is reproducible from the code in this repo. Every post asks the same question of a different effect: **is it real, or is it the
+measurement?** Empirical evidence leads, with simulation kept to a small sanity check. Data
+comes from Binance's public archive, which anyone can download without an account.
 
 ## The series
 
