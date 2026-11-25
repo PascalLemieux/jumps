@@ -268,3 +268,69 @@ def slot_panels(panels: list[dict], labels: list[str], title: str, subtitle: str
     last.set_xlabel(xlabel)
     titled(fig, title, subtitle)
     return fig
+
+
+# --------------------------------------------------------------------------
+# Post 3: microstructure noise
+# --------------------------------------------------------------------------
+
+def signature_plot(series: list[dict], labels: list[str], title: str, subtitle: str,
+                   ylabel: str = "", xlabel: str = "Sampling interval",
+                   yticks: list[float] | None = None, reference: float | None = 1.0,
+                   reference_label: str | None = None,
+                   log: bool = True, percent: bool = False) -> plt.Figure:
+    """A statistic against sampling interval, one line per asset, labelled at the right end.
+
+    ``series`` items: ``{"name", "y", "color", "marker", "lw"}`` with one value
+    per label. Lines that end close together have their labels pushed apart.
+    """
+    fig, ax = plt.subplots(figsize=(6, 6))
+    fig.subplots_adjust(left=0.12, right=0.86, top=0.80, bottom=0.12)
+    x = np.arange(len(labels))
+    if reference is not None:
+        ax.axhline(reference, color=MUTED, lw=1.0, ls=(0, (4, 3)), zorder=1)
+        if reference_label:
+            ax.annotate(reference_label, (len(labels) - 1, reference), xytext=(0, 5), textcoords="offset points",
+                        fontsize=8.5, color=INK_2, va="bottom", ha="right",
+                        bbox=dict(facecolor=SURFACE, edgecolor="none", pad=1.5), zorder=4)
+    for s in series:
+        ax.plot(x, s["y"], color=s["color"], lw=s.get("lw", 1.8), marker=s.get("marker", "o"),
+                markersize=s.get("ms", 5), markeredgecolor=SURFACE, markeredgewidth=1.0, zorder=3)
+    if log:
+        ax.set_yscale("log")
+    if yticks:
+        ax.set_yticks(yticks)
+        ax.set_yticklabels([f"{v:g}" + ("%" if percent else "x") for v in yticks])
+        ax.minorticks_off()
+    elif percent:
+        ax.yaxis.set_major_formatter(mpl.ticker.PercentFormatter(decimals=0))
+    ax.set_xticks(x, labels)
+    ax.tick_params(axis="x", labelsize=9)
+    ax.set_xlim(-0.4, len(labels) - 0.6)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    fig.canvas.draw()
+    _end_labels(ax, {s["name"]: (x[-1], s["y"][-1]) for s in series})
+    titled(fig, title, subtitle)
+    return fig
+
+
+def grouped_bars(groups: list[str], series: list[dict], title: str, subtitle: str,
+                 ylabel: str = "", percent: bool = True) -> plt.Figure:
+    """Bars for several measures (``series``: ``{"name", "y", "color"}``) over the same groups."""
+    fig, ax = plt.subplots(figsize=(6, 6))
+    fig.subplots_adjust(left=0.12, right=0.96, top=0.78, bottom=0.09)
+    x = np.arange(len(groups))
+    w = 0.8 / len(series)
+    for j, s in enumerate(series):
+        ax.bar(x - 0.4 + (j + 0.5) * w, s["y"], width=w - 0.04, color=s["color"], label=s["name"], zorder=3)
+    ax.axhline(0, color=AXIS, lw=0.8, zorder=2)
+    ax.set_xticks(x, groups)
+    ax.tick_params(axis="x", length=0)
+    ax.set_ylabel(ylabel)
+    if percent:
+        ax.yaxis.set_major_formatter(mpl.ticker.PercentFormatter(decimals=0))
+    ax.legend(loc="upper left", bbox_to_anchor=(0.0, 1.10), ncol=len(series), fontsize=9,
+              handlelength=1.2, columnspacing=1.4, borderaxespad=0)
+    titled(fig, title, subtitle)
+    return fig

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import io
 import json
+import sys
 import urllib.error
 import urllib.request
 import zipfile
@@ -103,13 +104,14 @@ def load_klines(
 ) -> pd.DataFrame:
     """Return klines for every month from ``start`` to ``end`` inclusive (``YYYY-MM``)."""
     months = pd.period_range(start, end, freq="M").strftime("%Y-%m")
+    progress = verbose and sys.stdout.isatty()  # keep executed notebooks free of progress lines
     frames = []
     for month in months:
-        if verbose:
+        if progress:
             print(f"{symbol} {interval} {month}", end="\r")
         frames.append(download_month(symbol, month, interval, cache_dir))
     if verbose:
-        print(f"{symbol} {interval}: {len(months)} months loaded" + " " * 10)
+        print(f"{symbol} {interval}: {len(months)} months loaded")
     return pd.concat(frames).sort_index()
 
 
