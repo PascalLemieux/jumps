@@ -1,24 +1,33 @@
-"""Download 1-minute klines from Binance's public data archive.
+"""Download market data from public archives. No API key or account is needed.
 
-No API key or account is needed: files come from https://data.binance.vision,
-one zip per symbol and calendar month. Each month is cached locally as parquet,
-so a second call reads from disk.
+* 1-minute klines and aggregated trades come from Binance's public archive at
+  https://data.binance.vision.
+* The DVOL implied-volatility index comes from Deribit's public API.
+
+Everything is cached locally as parquet under ``data/``, so a second call reads
+from disk.
 
 Example
 -------
->>> from jumps.data import load_klines
+>>> from jumps.data import load_klines, iter_agg_trades
 >>> df = load_klines("BTCUSDT", "2023-01", "2024-12")
 >>> df["close"].head()
+>>> for day, trades in iter_agg_trades("BTCUSDT", "2026-10-01", "2026-10-07"):
+...     print(day, len(trades))
 """
 
 from __future__ import annotations
 
 import io
+import json
 import urllib.error
 import urllib.request
 import zipfile
+from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 BASE_URL = "https://data.binance.vision/data/spot/monthly/klines"
@@ -112,8 +121,6 @@ def to_daily_grid(close: pd.Series, bars_per_day: int = 1440) -> pd.DataFrame:
     Gaps of up to five minutes (exchange maintenance) are forward filled;
     days with longer gaps are dropped.
     """
-    import numpy as np
-
     close = close.sort_index()
     full = pd.date_range(
         close.index[0].floor("D"),
@@ -126,3 +133,127 @@ def to_daily_grid(close: pd.Series, bars_per_day: int = 1440) -> pd.DataFrame:
     prev_close = np.r_[np.nan, grid[:-1, -1]]
     table = pd.DataFrame(np.column_stack([prev_close, grid]), index=days)
     return table.dropna()
+
+
+# --------------------------------------------------------------------------
+# Aggregated trades (tick data)
+# --------------------------------------------------------------------------
+
+AGG_TRADES_URL = "https://data.binance.vision/data/spot/daily/aggTrades"
+AGG_COLUMNS = [
+    "agg_id", "price", "qty", "first_id", "last_id", "time", "is_buyer_maker", "is_best_match",
+]
+
+
+def _fetch(url: str, timeout: int) -> bytes:
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            return resp.read()
+    except urllib.error.HTTPError as exc:
+        raise FileNotFoundError(f"No archive at {url} (HTTP {exc.code}).") from exc
+
+
+def download_agg_trades_day(
+    symbol: str,
+    day: str,
+    cache_dir: Path | str = DEFAULT_CACHE,
+    timeout: int = 180,
+) -> pd.DataFrame:
+    """One UTC day of Binance aggregated trades, e.g. ``("BTCUSDT", "2026-10-14")``.
+
+    An aggregated trade merges the fills of one taker order that execute at the
+    same price. Returns columns ``time_us`` (microseconds since the epoch, UTC),
+    ``price``, ``qty`` and ``buyer_maker`` (True when the taker sold), in
+    exchange order.
+    """
+    cache_dir = Path(cache_dir) / "aggTrades" / symbol
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cached = cache_dir / f"{symbol}-aggTrades-{day}.parquet"
+    if cached.exists():
+        return pd.read_parquet(cached)
+
+    payload = _fetch(f"{AGG_TRADES_URL}/{symbol}/{symbol}-aggTrades-{day}.zip", timeout)
+    with zipfile.ZipFile(io.BytesIO(payload)) as zf:
+        with zf.open(zf.namelist()[0]) as fh:
+            raw = pd.read_csv(fh, header=None, names=AGG_COLUMNS, low_memory=False)
+    if not str(raw.iloc[0, 0]).isdigit():  # header row in some archives
+        raw = raw.iloc[1:]
+    stamp = raw["time"].astype("int64").to_numpy()
+    if stamp[0] < 10**14:  # milliseconds before 2025, microseconds after
+        stamp = stamp * 1000
+    df = pd.DataFrame({
+        "time_us": stamp,
+        "price": raw["price"].astype("float64").to_numpy(),
+        "qty": raw["qty"].astype("float64").to_numpy(),
+        "buyer_maker": raw["is_buyer_maker"].astype(str).str.lower().eq("true").to_numpy(),
+    })
+    df.to_parquet(cached, index=False)
+    return df
+
+
+def iter_agg_trades(
+    symbol: str,
+    start: str,
+    end: str,
+    cache_dir: Path | str = DEFAULT_CACHE,
+    workers: int = 8,
+) -> Iterator[tuple[pd.Timestamp, pd.DataFrame]]:
+    """Yield ``(day, trades)`` for every UTC day from ``start`` to ``end`` inclusive.
+
+    Missing days are downloaded in parallel first, then days are yielded in
+    order, one at a time, so a month of BTC trades never sits in memory at once.
+    """
+    days = pd.date_range(start, end, freq="D")
+    labels = [d.strftime("%Y-%m-%d") for d in days]
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        list(pool.map(lambda lab: download_agg_trades_day(symbol, lab, cache_dir) is None, labels))
+    for day, lab in zip(days, labels):
+        yield day.tz_localize("UTC"), download_agg_trades_day(symbol, lab, cache_dir)
+
+
+# --------------------------------------------------------------------------
+# Deribit DVOL (30-day implied volatility index)
+# --------------------------------------------------------------------------
+
+DVOL_URL = "https://www.deribit.com/api/v2/public/get_volatility_index_data"
+
+
+def load_dvol(
+    currency: str = "BTC",
+    start: str = "2021-04-01",
+    end: str | None = None,
+    resolution_seconds: int = 3600,
+    cache_dir: Path | str = DEFAULT_CACHE,
+    timeout: int = 60,
+) -> pd.DataFrame:
+    """Deribit DVOL index candles (open, high, low, close), in annualised percent.
+
+    DVOL is Deribit's 30-day implied volatility index, built from the option
+    surface in the manner of the VIX. The public endpoint needs no key and
+    returns 1,000 candles per call, so the history is paged backwards.
+    """
+    cache_dir = Path(cache_dir) / "dvol"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    end_ts = pd.Timestamp(end, tz="UTC") if end else pd.Timestamp.now(tz="UTC").floor("D")
+    start_ts = pd.Timestamp(start, tz="UTC")
+    cached = cache_dir / f"{currency}-DVOL-{resolution_seconds}-{start_ts:%Y%m%d}-{end_ts:%Y%m%d}.parquet"
+    if cached.exists():
+        return pd.read_parquet(cached)
+
+    rows: list[list[float]] = []
+    lo, hi = int(start_ts.timestamp() * 1000), int(end_ts.timestamp() * 1000)
+    while hi > lo:
+        url = (f"{DVOL_URL}?currency={currency}&start_timestamp={lo}&end_timestamp={hi}"
+               f"&resolution={resolution_seconds}")
+        result = json.loads(_fetch(url, timeout))["result"]
+        if not result["data"]:
+            break
+        rows = result["data"] + rows
+        if not result.get("continuation"):
+            break
+        hi = int(result["continuation"])
+    df = pd.DataFrame(rows, columns=["time", "open", "high", "low", "close"])
+    df.index = pd.DatetimeIndex(pd.to_datetime(df.pop("time"), unit="ms", utc=True), name="time")
+    df = df[~df.index.duplicated()].sort_index()
+    df.to_parquet(cached)
+    return df

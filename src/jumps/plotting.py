@@ -174,3 +174,97 @@ def _end_labels(ax, points: dict, min_gap_pt: float = 11.0) -> None:
         x, y = points[name]
         ax.annotate(name, (x, y), xytext=(9, off / dpi_scale), textcoords="offset points",
                     fontsize=9.5, color=INK, va="center")
+
+
+# --------------------------------------------------------------------------
+# Post 2: intraday seasonality
+# --------------------------------------------------------------------------
+
+def before_after_bars(before, after, labels, title: str, subtitle: str,
+                      before_name: str = "Before", after_name: str = "After",
+                      xlabel: str = "", ylabel: str = "", tick_every: int = 3,
+                      notes: list[dict] | None = None) -> plt.Figure:
+    """Paired bars for two counts over the same categories, e.g. hours of the day.
+
+    ``notes`` items: ``{"x", "y", "text"}`` place a short annotation in data units.
+    """
+    x = np.arange(len(labels))
+    fig, ax = plt.subplots(figsize=(6, 6))
+    fig.subplots_adjust(left=0.12, right=0.96, top=0.78, bottom=0.11)
+    w = 0.40
+    ax.bar(x - w / 2, before, width=w - 0.04, color=AXIS, label=before_name, zorder=3)
+    ax.bar(x + w / 2, after, width=w - 0.04, color=BLUE, label=after_name, zorder=3)
+    ax.set_xticks(x[::tick_every], [labels[i] for i in range(0, len(labels), tick_every)])
+    ax.set_xlim(-0.7, len(labels) - 0.3)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.tick_params(axis="x", length=0)
+    for n in notes or []:
+        ax.annotate(n["text"], (n["x"], n["y"]), xytext=n.get("offset", (0, 6)),
+                    textcoords="offset points", fontsize=9, color=INK_2,
+                    ha=n.get("ha", "center"), va="bottom")
+    ax.legend(loc="upper left", bbox_to_anchor=(0.0, 1.10), ncol=2, fontsize=9.5,
+              handlelength=1.2, columnspacing=1.6, borderaxespad=0)
+    titled(fig, title, subtitle)
+    return fig
+
+
+def week_panels(panels: list[dict], minutes: int, title: str, subtitle: str,
+                xlabel: str = "Day of the week", notes: list[dict] | None = None) -> plt.Figure:
+    """One stacked panel per period: a statistic for every slot of the week.
+
+    ``panels`` items: ``{"name", "y", "color"}`` with one value per slot, Monday
+    first. ``notes`` items: ``{"panel", "x", "y", "text", "offset", "ha"}``.
+    """
+    per_day = 1440 // minutes
+    fig, axes = plt.subplots(len(panels), 1, figsize=(6, 6), sharex=True, sharey=True)
+    fig.subplots_adjust(left=0.10, right=0.96, top=0.80, bottom=0.10, hspace=0.30)
+    axes = np.atleast_1d(axes)
+    top = max(float(np.nanmax(p["y"])) for p in panels)
+    for ax, p in zip(axes, panels):
+        for d in range(1, 7):
+            ax.axvline(d * per_day, color=GRID, lw=0.8, zorder=1)
+        ax.axhline(1.0, color=MUTED, lw=1.0, ls=(0, (4, 3)), zorder=2)
+        ax.plot(np.arange(len(p["y"])), p["y"], color=p["color"], lw=0.9, zorder=3)
+        ax.set_title(p["name"], loc="left", fontsize=10.5, color=INK)
+        ax.set_ylim(0, top * 1.12)
+        ax.set_xlim(0, 7 * per_day)
+        ax.tick_params(axis="x", length=0)
+        ax.grid(axis="y", lw=0.6)
+    for n in notes or []:
+        axes[n["panel"]].annotate(n["text"], (n["x"], n["y"]), xytext=n.get("offset", (0, 6)),
+                                  textcoords="offset points", fontsize=8.5, color=INK_2,
+                                  ha=n.get("ha", "center"), va="bottom")
+    axes[-1].set_xticks((np.arange(7) + 0.5) * per_day, ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"])
+    axes[-1].set_xlabel(xlabel)
+    titled(fig, title, subtitle)
+    return fig
+
+
+def slot_panels(panels: list[dict], labels: list[str], title: str, subtitle: str,
+                marks: list[dict] | None = None, tick_every: int = 12, xlabel: str = "") -> plt.Figure:
+    """Stacked bar panels over the same intraday slots, sharing both axes.
+
+    ``panels`` items: ``{"name", "y", "color"}``. ``marks`` items: ``{"slot", "text"}``
+    label a slot in every panel.
+    """
+    n = len(panels)
+    fig, axes = plt.subplots(n, 1, figsize=(6, 6), sharex=True, sharey=True)
+    fig.subplots_adjust(left=0.11, right=0.96, top=0.80, bottom=0.11, hspace=0.30)
+    x = np.arange(len(labels))
+    top = max(float(np.max(p["y"])) for p in panels)
+    for ax, p in zip(np.atleast_1d(axes), panels):
+        ax.bar(x, p["y"], width=0.8, color=p["color"], zorder=3)
+        ax.set_title(p["name"], loc="left", fontsize=10.5, color=INK)
+        ax.set_ylim(0, top * 1.18)
+        ax.tick_params(axis="x", length=0)
+        for m in marks or []:
+            ax.axvline(m["slot"], color=MUTED, lw=0.8, ls=(0, (2, 2)), zorder=1)
+            ax.text(m["slot"], top * 1.16, m["text"], fontsize=8.5, color=INK_2, ha="center", va="top",
+                    bbox=dict(facecolor=SURFACE, edgecolor="none", pad=1.5))
+    last = np.atleast_1d(axes)[-1]
+    last.set_xticks(x[::tick_every], [labels[i] for i in range(0, len(labels), tick_every)])
+    last.set_xlim(-1, len(labels))
+    last.set_xlabel(xlabel)
+    titled(fig, title, subtitle)
+    return fig
