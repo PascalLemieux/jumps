@@ -278,7 +278,8 @@ def signature_plot(series: list[dict], labels: list[str], title: str, subtitle: 
                    ylabel: str = "", xlabel: str = "Sampling interval",
                    yticks: list[float] | None = None, reference: float | None = 1.0,
                    reference_label: str | None = None,
-                   log: bool = True, percent: bool = False, ymin: float | None = None) -> plt.Figure:
+                   log: bool = True, percent: bool = False, ymin: float | None = None,
+                   legend: bool = False) -> plt.Figure:
     """A statistic against sampling interval, one line per asset, labelled at the right end.
 
     ``series`` items: ``{"name", "y", "color", "marker", "lw"}`` with one value
@@ -294,7 +295,7 @@ def signature_plot(series: list[dict], labels: list[str], title: str, subtitle: 
                         fontsize=8.5, color=INK_2, va="bottom", ha="right",
                         bbox=dict(facecolor=SURFACE, edgecolor="none", pad=1.5), zorder=4)
     for s in series:
-        ax.plot(x, s["y"], color=s["color"], lw=s.get("lw", 1.8), marker=s.get("marker", "o"),
+        ax.plot(x, s["y"], color=s["color"], lw=s.get("lw", 1.8), ls=s.get("ls", "-"), marker=s.get("marker", "o"),
                 markersize=s.get("ms", 5), markeredgecolor=SURFACE, markeredgewidth=1.0, zorder=3)
     if log:
         ax.set_yscale("log")
@@ -311,8 +312,16 @@ def signature_plot(series: list[dict], labels: list[str], title: str, subtitle: 
     ax.set_ylabel(ylabel)
     if ymin is not None:
         ax.set_ylim(bottom=ymin)
-    fig.canvas.draw()
-    _end_labels(ax, {s["name"]: (x[-1], s["y"][-1]) for s in series})
+    if legend:
+        fig.subplots_adjust(right=0.95, top=0.74)
+        handles = [mpl.lines.Line2D([], [], color=s["color"], lw=s.get("lw", 1.8), ls=s.get("ls", "-"),
+                                    marker=s.get("marker", "o"), markersize=5, markeredgecolor=SURFACE,
+                                    label=s["name"]) for s in series]
+        ax.legend(handles=handles, loc="upper left", bbox_to_anchor=(0.0, 1.20), ncol=2, fontsize=9,
+                  handlelength=2.4, columnspacing=1.6, borderaxespad=0, labelspacing=0.4)
+    else:
+        fig.canvas.draw()
+        _end_labels(ax, {s["name"]: (x[-1], s["y"][-1]) for s in series})
     titled(fig, title, subtitle)
     return fig
 
@@ -344,7 +353,7 @@ def grouped_bars(groups: list[str], series: list[dict], title: str, subtitle: st
 
 def tail_plot(series: list[dict], title: str, subtitle: str, xlabel: str, ylabel: str,
               guides: list[dict] | None = None, xticks: list[float] | None = None,
-              yticks: list[float] | None = None) -> plt.Figure:
+              yticks: list[float] | None = None, xticklabels: list[str] | None = None) -> plt.Figure:
     """Exceedance counts against threshold on log-log axes, with a legend above the plot.
 
     ``series`` items: ``{"name", "x", "y", "color", "lw", "ls", "marker"}``;
@@ -360,13 +369,13 @@ def tail_plot(series: list[dict], title: str, subtitle: str, xlabel: str, ylabel
     for s in series:
         ok = np.asarray(s["y"]) > 0
         ax.plot(np.asarray(s["x"])[ok], np.asarray(s["y"])[ok], color=s["color"], lw=s.get("lw", 1.8),
-                ls=s.get("ls", "-"), marker=s.get("marker"), markersize=4.5,
+                ls=s.get("ls", "-"), marker=s.get("marker"), markersize=s.get("ms", 4.5),
                 markeredgecolor=SURFACE, markeredgewidth=0.8, zorder=s.get("zorder", 3))
     ax.set_xscale("log")
     ax.set_yscale("log")
     if xticks:
         ax.set_xticks(xticks)
-        ax.set_xticklabels([f"{v:g}" for v in xticks])
+        ax.set_xticklabels(xticklabels or [f"{v:g}" for v in xticks])
     if yticks:
         ax.set_yticks(yticks)
         ax.set_yticklabels([f"{v:,.0f}" if v >= 1 else f"{v:g}" for v in yticks])
@@ -378,10 +387,56 @@ def tail_plot(series: list[dict], title: str, subtitle: str, xlabel: str, ylabel
     for s in series:
         if s["name"] not in seen:
             seen.add(s["name"])
-            handles.append(mpl.lines.Line2D([], [], color=s["color"], lw=s.get("lw", 1.8), label=s["name"]))
+            handles.append(mpl.lines.Line2D([], [], color=s["color"], lw=s.get("lw", 1.8), ls=s.get("ls", "-"),
+                                            marker=s.get("marker"), markersize=s.get("ms", 4.5),
+                                            markeredgecolor=SURFACE, label=s["name"]))
     for g in guides or []:
         handles.append(mpl.lines.Line2D([], [], color=MUTED, lw=1.0, ls=(0, (4, 3)), label=g["text"]))
     ax.legend(handles=handles, loc="upper left", bbox_to_anchor=(0.0, 1.17), ncol=1, fontsize=9,
               handlelength=2.0, borderaxespad=0, labelspacing=0.35)
+    titled(fig, title, subtitle)
+    return fig
+
+
+# --------------------------------------------------------------------------
+# Post 6: rough volatility
+# --------------------------------------------------------------------------
+
+def scaling_fan(lags: np.ndarray, moments: dict[float, np.ndarray], title: str, subtitle: str,
+                xlabel: str = "Lag, days", ylabel: str = "", note: str | None = None) -> plt.Figure:
+    """``m(q, lag) / m(q, 1)`` against the lag on log-log axes for several ``q``, with fitted lines.
+
+    ``moments`` maps ``q`` to ``m(q, lag)``. Dividing by the value at lag 1
+    makes every curve start at one, so they fan out with slopes ``q * H``.
+    Larger ``q`` is drawn darker and labelled at the right end.
+    """
+    fig, ax = plt.subplots(figsize=(6, 6))
+    fig.subplots_adjust(left=0.12, right=0.86, top=0.80, bottom=0.11)
+    base, light = np.array(mpl.colors.to_rgb(BLUE)), np.array(mpl.colors.to_rgb(SURFACE))
+    weights = np.linspace(0.35, 1.0, len(moments))
+    lx = np.log(lags)
+    ends = {}
+    for (q, m), w in zip(moments.items(), weights):
+        colour = tuple(w * base + (1 - w) * light)
+        y = m / m[0]
+        slope, intercept = np.polyfit(lx, np.log(y), 1)
+        ax.plot(lags, np.exp(intercept + slope * lx), color=colour, lw=1.3, zorder=2)
+        ax.plot(lags, y, ls="none", marker="o", markersize=4, color=colour,
+                markeredgecolor=SURFACE, markeredgewidth=0.6, zorder=3)
+        ends[f"q = {q:g}"] = (lags[-1], np.exp(intercept + slope * lx[-1]))
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_xticks([1, 2, 5, 10, 20, 30])
+    ax.set_xticklabels(["1", "2", "5", "10", "20", "30"])
+    ax.set_yticks([1, 1.5, 2, 3, 4])
+    ax.set_yticklabels(["1x", "1.5x", "2x", "3x", "4x"])
+    ax.minorticks_off()
+    ax.grid(axis="x", lw=0.6)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    if note:
+        ax.text(0.03, 0.97, note, transform=ax.transAxes, fontsize=10, color=INK, va="top", ha="left")
+    fig.canvas.draw()
+    _end_labels(ax, ends)
     titled(fig, title, subtitle)
     return fig
