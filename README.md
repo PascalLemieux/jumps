@@ -29,11 +29,11 @@ comes from Binance's public archive, which anyone can download without an accoun
 | # | Post | Question it answers | Code |
 |:-:|------|---------------------|------|
 | 1 | **Most "jumps" are not jumps** | Are the biggest moves discontinuities, or slides that bars cannot resolve? | [notebook](notebooks/01_jumps_vs_vol_bursts.ipynb) · [draft](posts/01_post.md) |
-| 2 | Intraday seasonality and false jumps | How many detections are just the busy hours of the day? | planned |
-| 3 | Bid-ask bounce and microstructure noise | What tick data does to jump tests, and how to average the noise out | planned |
-| 4 | Finite or infinite activity | A few big jumps, or an endless stream of small ones? | planned |
-| 5 | What jump activity does to your hedge | How much risk delta hedging can remove, and how fast | planned |
-| 6 | Is volatility rough? | Is the clean scaling line real, or a measurement artefact? | planned |
+| 2 | **Intraday seasonality and false jumps** | How many detections are just the busy hours of the day? | [notebook](notebooks/02_intraday_seasonality.ipynb) · [draft](posts/02_post.md) |
+| 3 | **Bid-ask bounce and microstructure noise** | What tick data does to jump tests, and how to average the noise out | [notebook](notebooks/03_microstructure_noise.ipynb) · [draft](posts/03_post.md) |
+| 4 | **Finite or infinite activity** | A few big jumps, or an endless stream of small ones? | [notebook](notebooks/04_jump_activity.ipynb) · [draft](posts/04_post.md) |
+| 5 | What jump activity does to your hedge | How much risk delta hedging can remove, and how fast | [first cut](notebooks/05_hedging_error.ipynb) |
+| 6 | **Is volatility rough?** | Is the clean scaling line real, or a measurement artefact? | [notebook](notebooks/06_rough_volatility.ipynb) · [draft](posts/06_post.md) |
 | 7 | Jumps or roughness in the smile? | Which one explains the short-dated skew? | planned |
 | 8 | The jump risk premium | What the market pays to be rid of them | planned |
 | 9 | Hedging with self-exciting jumps | Hawkes dynamics, co-jumps, and the cross-section of coins | planned |
