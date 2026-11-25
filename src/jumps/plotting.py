@@ -278,7 +278,7 @@ def signature_plot(series: list[dict], labels: list[str], title: str, subtitle: 
                    ylabel: str = "", xlabel: str = "Sampling interval",
                    yticks: list[float] | None = None, reference: float | None = 1.0,
                    reference_label: str | None = None,
-                   log: bool = True, percent: bool = False) -> plt.Figure:
+                   log: bool = True, percent: bool = False, ymin: float | None = None) -> plt.Figure:
     """A statistic against sampling interval, one line per asset, labelled at the right end.
 
     ``series`` items: ``{"name", "y", "color", "marker", "lw"}`` with one value
@@ -309,6 +309,8 @@ def signature_plot(series: list[dict], labels: list[str], title: str, subtitle: 
     ax.set_xlim(-0.4, len(labels) - 0.6)
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
+    if ymin is not None:
+        ax.set_ylim(bottom=ymin)
     fig.canvas.draw()
     _end_labels(ax, {s["name"]: (x[-1], s["y"][-1]) for s in series})
     titled(fig, title, subtitle)
@@ -332,5 +334,54 @@ def grouped_bars(groups: list[str], series: list[dict], title: str, subtitle: st
         ax.yaxis.set_major_formatter(mpl.ticker.PercentFormatter(decimals=0))
     ax.legend(loc="upper left", bbox_to_anchor=(0.0, 1.10), ncol=len(series), fontsize=9,
               handlelength=1.2, columnspacing=1.4, borderaxespad=0)
+    titled(fig, title, subtitle)
+    return fig
+
+
+# --------------------------------------------------------------------------
+# Post 4: jump activity
+# --------------------------------------------------------------------------
+
+def tail_plot(series: list[dict], title: str, subtitle: str, xlabel: str, ylabel: str,
+              guides: list[dict] | None = None, xticks: list[float] | None = None,
+              yticks: list[float] | None = None) -> plt.Figure:
+    """Exceedance counts against threshold on log-log axes, with a legend above the plot.
+
+    ``series`` items: ``{"name", "x", "y", "color", "lw", "ls", "marker"}``;
+    series that share a name share one legend entry. ``guides`` items:
+    ``{"slope", "x0", "y0", "x1", "text"}`` draw a dashed reference line of the
+    given log-log slope through ``(x0, y0)`` up to ``x1``.
+    """
+    fig, ax = plt.subplots(figsize=(6, 6))
+    fig.subplots_adjust(left=0.15, right=0.95, top=0.70, bottom=0.11)
+    for g in guides or []:
+        xs = np.array([g["x0"], g["x1"]])
+        ax.plot(xs, g["y0"] * (xs / g["x0"]) ** g["slope"], color=MUTED, lw=1.0, ls=(0, (4, 3)), zorder=2)
+    for s in series:
+        ok = np.asarray(s["y"]) > 0
+        ax.plot(np.asarray(s["x"])[ok], np.asarray(s["y"])[ok], color=s["color"], lw=s.get("lw", 1.8),
+                ls=s.get("ls", "-"), marker=s.get("marker"), markersize=4.5,
+                markeredgecolor=SURFACE, markeredgewidth=0.8, zorder=s.get("zorder", 3))
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    if xticks:
+        ax.set_xticks(xticks)
+        ax.set_xticklabels([f"{v:g}" for v in xticks])
+    if yticks:
+        ax.set_yticks(yticks)
+        ax.set_yticklabels([f"{v:,.0f}" if v >= 1 else f"{v:g}" for v in yticks])
+    ax.minorticks_off()
+    ax.grid(axis="x", lw=0.6)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    handles, seen = [], set()
+    for s in series:
+        if s["name"] not in seen:
+            seen.add(s["name"])
+            handles.append(mpl.lines.Line2D([], [], color=s["color"], lw=s.get("lw", 1.8), label=s["name"]))
+    for g in guides or []:
+        handles.append(mpl.lines.Line2D([], [], color=MUTED, lw=1.0, ls=(0, (4, 3)), label=g["text"]))
+    ax.legend(handles=handles, loc="upper left", bbox_to_anchor=(0.0, 1.17), ncol=1, fontsize=9,
+              handlelength=2.0, borderaxespad=0, labelspacing=0.35)
     titled(fig, title, subtitle)
     return fig

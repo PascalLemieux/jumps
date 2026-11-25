@@ -237,3 +237,28 @@ def tick_detections(
             out["block_ticks"] = k
             out["blocks_per_day"] = len(r_star) / n_days
     return out
+
+
+def clock_prices(symbol: str, start: str, end: str, seconds: list[float]) -> dict[float, np.ndarray]:
+    """Log prices on clock grids over the whole period, by previous-tick sampling.
+
+    Days are chained, so the grids run without a break from the first full
+    interval after the first trade to the end of the last day. Every grid starts
+    at the same instant, a multiple of the coarsest interval.
+    """
+    from .data import iter_agg_trades
+
+    times, prices = [], []
+    for _, trades in iter_agg_trades(symbol, start, end):
+        t, logp = to_ticks(trades)
+        times.append(t)
+        prices.append(logp)
+    t, logp = np.concatenate(times), np.concatenate(prices)
+    coarse = int(max(seconds) * 10**6)
+    first = (t[0] // coarse + 1) * coarse
+    last = int((pd.Timestamp(end, tz="UTC") + pd.Timedelta(days=1)).timestamp() * 10**6)
+    out = {}
+    for s in seconds:
+        grid = np.arange(first, last + 1, int(s * 10**6), dtype=np.int64)
+        out[s] = logp[np.searchsorted(t, grid, side="right") - 1]
+    return out

@@ -196,3 +196,30 @@ def lee_mykland(
     out["jump"] = out["J"] > threshold
     out.attrs["threshold"] = threshold
     return out
+
+
+def standardised_returns(
+    close: pd.Series,
+    minutes: int,
+    breaks: list[str] | None = None,
+    tz: str = "America/New_York",
+) -> pd.Series:
+    """Bar returns in units of their local volatility, with the weekly seasonality removed.
+
+    The seasonality factor is estimated on 5-minute returns as in post 2
+    (weighted standard deviation, one factor per slot of the week, per
+    sub-period). Each return is divided by the factor of the 5-minute slots it
+    covers, then by the trailing bipower volatility of the deseasonalised
+    returns over the Lee-Mykland window. Without jumps the result is roughly
+    standard normal.
+    """
+    r5 = regular_returns(close, 5)
+    base = lee_mykland(r5, default_window(288), 288)
+    f5, _ = seasonal_factor(r5 / base["s"], week_slot(r5.index, 5, tz), 7 * 288, breaks)
+    r = regular_returns(close, minutes)
+    if minutes < 5:
+        f = f5.reindex(r.index.ceil("5min")).to_numpy()
+    else:
+        f = np.sqrt((f5**2).rolling(minutes // 5).mean()).reindex(r.index).to_numpy()
+    adjusted = r / f
+    return adjusted / local_volatility(adjusted, default_window(1440 // minutes))
