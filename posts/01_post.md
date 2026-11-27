@@ -11,15 +11,17 @@ I took the six largest 15-minute moves in BTC's history on Binance, 2017 to 2026
 - 10 May 2020: -14%. Biggest minute: 34%.
 - 19 May 2021: -14%. Biggest minute: 22%.
 
-Not one is a discontinuity. They are slides that take 5 to 14 minutes to cover half the distance. Across the 50 largest moves, the biggest minute carries 29% of the move at the median.
+Not one is a discontinuity. They are slides that take 5 to 14 minutes to cover half the distance. Across the 50 largest moves, the biggest minute carries 28% of the move at the median.
+
+Thinner markets tell the same story. For ETH, XRP and SOL the median is 28% to 31%, and half the move takes 10 to 12 minutes. XRP's crash of 10 October 2025 took 45% off the price in 15 minutes. Its worst single minute carried 42% of that.
 
 On a 15-minute chart each of these is one candle. To a jump test that only sees candles, one candle is a jump.
 
-So the test's verdict depends on the clock. Bipower-variation jump share of BTC variance, same 3,315 days:
+So the test's verdict depends on the clock. Bipower-variation jump share of BTC variance, same 3,307 days:
 
 - 1-hour bars: 15%
 - 5-minute bars: 7%
-- 1-minute bars: 9%
+- 1-minute bars: 7%
 
 And at 1 minute the Barndorff-Nielsen-Shephard test still flags a jump on 34% of days. Nominal size: 1%.
 

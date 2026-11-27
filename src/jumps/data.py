@@ -102,17 +102,29 @@ def load_klines(
     cache_dir: Path | str = DEFAULT_CACHE,
     verbose: bool = True,
 ) -> pd.DataFrame:
-    """Return klines for every month from ``start`` to ``end`` inclusive (``YYYY-MM``)."""
+    """Return klines for every month from ``start`` to ``end`` inclusive (``YYYY-MM``).
+
+    Months before the symbol was listed are skipped, so ``start`` can be set
+    earlier than the listing date. A missing month after the first available
+    one is an error.
+    """
     months = pd.period_range(start, end, freq="M").strftime("%Y-%m")
     progress = verbose and sys.stdout.isatty()  # keep executed notebooks free of progress lines
     frames = []
     for month in months:
         if progress:
             print(f"{symbol} {interval} {month}", end="\r")
-        frames.append(download_month(symbol, month, interval, cache_dir))
+        try:
+            frames.append(download_month(symbol, month, interval, cache_dir))
+        except FileNotFoundError:
+            if frames:
+                raise
+    if not frames:
+        raise FileNotFoundError(f"No {symbol} {interval} archive between {start} and {end}.")
+    df = pd.concat(frames).sort_index()
     if verbose:
-        print(f"{symbol} {interval}: {len(months)} months loaded")
-    return pd.concat(frames).sort_index()
+        print(f"{symbol} {interval}: {len(frames)} months loaded, from {df.index[0]:%Y-%m-%d}")
+    return df
 
 
 def to_daily_grid(close: pd.Series, bars_per_day: int = 1440) -> pd.DataFrame:
